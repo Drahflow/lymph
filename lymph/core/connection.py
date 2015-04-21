@@ -63,7 +63,7 @@ class Connection(object):
         self.status = status
 
     def heartbeat_loop(self):
-        while True:
+        while self.status != CLOSED:
             start = time.monotonic()
             channel = self.server.ping(self.endpoint)
             try:
@@ -76,7 +76,7 @@ class Connection(object):
             gevent.sleep(self.heartbeat_interval)
 
     def live_check_loop(self):
-        while True:
+        while self.status != CLOSED:
             self.update_status()
             self.log_stats()
             gevent.sleep(self.timeout)
@@ -84,8 +84,14 @@ class Connection(object):
     def update_status(self):
         if self.last_seen:
             now = time.monotonic()
-            if now - self.last_seen >= self.timeout:
+
+            if now - self.last_seen >= self.unresponsive_disconnect:
+                logger.debug("disconnecting from unresponsive endpoint %s" % (self.endpoint))
+                self.close()
+            elif now - self.last_seen >= self.timeout:
                 self.set_status(UNRESPONSIVE)
+            elif now - self.last_message >= self.idle_disconnect:
+                self.close()
             elif now - self.last_message >= self.idle_timeout:
                 self.set_status(IDLE)
                 self.idle_since = now
@@ -108,8 +114,6 @@ class Connection(object):
         if self.status == CLOSED:
             return
         self.status = CLOSED
-        self.heartbeat_loop_greenlet.kill()
-        self.live_check_loop_greenlet.kill()
         self.server.disconnect(self.endpoint)
 
     def on_recv(self, msg):
