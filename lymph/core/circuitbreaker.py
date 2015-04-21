@@ -146,14 +146,14 @@ class MultiCauseCircuitBreaker:
 
         for endpoint in self.endpoint_fail.keys():
             if (self.endpoint_fail[endpoint][1] or 0) < cleanup_before:
-                self.endpoint_fail.pop(endpoint)
+                del self.endpoint_fail[endpoint]
         for method in self.method_fail.keys():
             if (self.method_fail[method][1] or 0) < cleanup_before:
-                self.method_fail.pop(method)
+                del self.method_fail[method]
             for endpoint in self.method_instance_fail[method].keys():
                 if (self.method_instance_fail[method][endpoint][1] or 0) < cleanup_before:
-                    self.method_instance_fail[method].pop(endpoint)
+                    del self.method_instance_fail[method][endpoint]
                     if not self.method_instance_fail[method]:
-                        self.method_instance_fail.pop(method)
+                        del self.method_instance_fail[method]
 
         self.last_cleanup = time.monotonic()

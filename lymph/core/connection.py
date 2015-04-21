@@ -32,13 +32,13 @@ class Connection(object):
 
         now = time.monotonic()
         self.last_seen = 0
-        self.idle_since = 0
         self.last_message = now
         self.created_at = now
         self.heartbeat_samples = SampleWindow(100, factor=1000)  # milliseconds
         self.explicit_heartbeat_count = 0
-        self.status = UNKNOWN
         self.phi = 0 # As in http://ternarysearch.blogspot.de/2013/08/phi-accrual-failure-detector.html
+        self.status = UNKNOWN
+        self.last_status_change = now
 
         self.received_message_count = 0
         self.sent_message_count = 0
@@ -55,10 +55,13 @@ class Connection(object):
         return time.monotonic() - self.last_seen
 
     def set_status(self, status):
+        if status != self.status:
+            self.last_status_change = time.monotonic()
+
         self.status = status
 
     def heartbeat_loop(self):
-        while True:
+        while self.status != CLOSED:
             start = time.monotonic()
             channel = self.server.ping(self.endpoint)
             error = False
@@ -75,6 +78,11 @@ class Connection(object):
                 else:
                     self.phi = -math.log10(p)
 
+                # Directly after startup, the standard deviation is not known sufficiently well and
+                # all samples appear very unlikely. Correct for this.
+                if len(self.heartbeat_samples) < 5:
+                    self.phi = min(1.0, self.phi)
+
                 self.heartbeat_samples.add(took)
                 self.explicit_heartbeat_count += 1
             else:
@@ -83,7 +91,7 @@ class Connection(object):
             gevent.sleep(max(0, self.heartbeat_interval - took))
 
     def live_check_loop(self):
-        while True:
+        while self.status != CLOSED:
             self.update_status()
             self.log_stats()
             gevent.sleep(1)
@@ -91,11 +99,16 @@ class Connection(object):
     def update_status(self):
         if self.last_seen:
             now = time.monotonic()
-            if now - self.last_seen >= self.timeout:
+
+            if self.status == UNRESPONSIVE and now - self.last_status_change >= self.unresponsive_disconnect:
+                logger.debug("disconnecting from unresponsive endpoint %s" % (self.endpoint))
+                self.close()
+            elif now - self.last_seen >= self.timeout:
                 self.set_status(UNRESPONSIVE)
+            elif self.status == IDLE and now - self.last_status_change >= self.idle_disconnect:
+                self.close()
             elif now - self.last_message >= self.idle_timeout:
                 self.set_status(IDLE)
-                self.idle_since = now
             else:
                 self.set_status(RESPONSIVE)
 
@@ -116,9 +129,10 @@ class Connection(object):
         if self.status == CLOSED:
             return
         self.status = CLOSED
+        self.server.disconnect(self.endpoint)
         self.heartbeat_loop_greenlet.kill()
         self.live_check_loop_greenlet.kill()
-        self.server.disconnect(self.endpoint)
+        # if the connection is closed due to non-liveness, code execution ends in the line above
 
     def on_recv(self, msg):
         now = time.monotonic()
