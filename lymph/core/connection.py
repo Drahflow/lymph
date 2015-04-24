@@ -31,12 +31,12 @@ class Connection(object):
 
         now = time.monotonic()
         self.last_seen = 0
-        self.idle_since = 0
         self.last_message = now
         self.created_at = now
         self.heartbeat_samples = SampleWindow(100, factor=1000)  # milliseconds
         self.explicit_heartbeat_count = 0
         self.status = UNKNOWN
+        self.last_status_change = now
 
         self.received_message_count = 0
         self.sent_message_count = 0
@@ -60,6 +60,9 @@ class Connection(object):
         return -math.log10(p)
 
     def set_status(self, status):
+        if status != self.status:
+            self.last_status_change = time.monotonic()
+
         self.status = status
 
     def heartbeat_loop(self):
@@ -85,16 +88,15 @@ class Connection(object):
         if self.last_seen:
             now = time.monotonic()
 
-            if now - self.last_seen >= self.unresponsive_disconnect:
+            if self.status == UNRESPONSIVE and now - self.last_status_change >= self.unresponsive_disconnect:
                 logger.debug("disconnecting from unresponsive endpoint %s" % (self.endpoint))
                 self.close()
             elif now - self.last_seen >= self.timeout:
                 self.set_status(UNRESPONSIVE)
-            elif now - self.last_message >= self.idle_disconnect:
+            elif self.status == IDLE and now - self.last_status_change >= self.idle_disconnect:
                 self.close()
             elif now - self.last_message >= self.idle_timeout:
                 self.set_status(IDLE)
-                self.idle_since = now
             else:
                 self.set_status(RESPONSIVE)
 
