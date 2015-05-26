@@ -53,9 +53,10 @@ class MultiCauseCircuitBreaker:
     COOLDOWN_SECONDS = 60
     OVERPROVISIONING_FACTOR = 2
     CLEANUP_INTERVAL = 3600
+    BEGIN_OF_TIME = 0
 
     def __init__(self, adjust_endpoint_rating=None):
-        self.global_fail = [0, None]
+        self.global_fail = [0, self.BEGIN_OF_TIME]
         self.endpoint_fail = {}
         self.method_fail = {}
         self.method_instance_fail = {}
@@ -64,12 +65,12 @@ class MultiCauseCircuitBreaker:
 
     def add_method(self, endpoint, method):
         if not endpoint in self.endpoint_fail:
-            self.endpoint_fail[endpoint] = [0, None]
+            self.endpoint_fail[endpoint] = [0, self.BEGIN_OF_TIME]
         if not method in self.method_fail:
-            self.method_fail[method] = [0, None]
+            self.method_fail[method] = [0, self.BEGIN_OF_TIME]
             self.method_instance_fail[method] = {}
         if not endpoint in self.method_instance_fail[method]:
-            self.method_instance_fail[method][endpoint] = [0, None]
+            self.method_instance_fail[method][endpoint] = [0, self.BEGIN_OF_TIME]
 
     def observe_failure(self, endpoint, method):
         now = time.monotonic()
@@ -85,22 +86,19 @@ class MultiCauseCircuitBreaker:
 
     def observe_success(self, endpoint, method):
         self.global_fail[0] = 0
-        self.global_fail[1] = None
+        self.global_fail[1] = self.BEGIN_OF_TIME
         self.endpoint_fail[endpoint][0] = 0
-        self.endpoint_fail[endpoint][1] = None
+        self.endpoint_fail[endpoint][1] = self.BEGIN_OF_TIME
         self.method_fail[method][0] = 0
-        self.method_fail[method][1] = None
+        self.method_fail[method][1] = self.BEGIN_OF_TIME
         self.method_instance_fail[method][endpoint][0] = 0
-        self.method_instance_fail[method][endpoint][1] = None
+        self.method_instance_fail[method][endpoint][1] = self.BEGIN_OF_TIME
 
     def _adjust_endpoint_rating(self, ratings):
         return ratings
 
     def select_endpoint(self, method, endpoints=None):
         now = time.monotonic()
-        if self.last_cleanup < now - self.CLEANUP_INTERVAL:
-            self._cleanup()
-
         ignore_before = now - self.COOLDOWN_SECONDS
 
         def apply_ignore_before(status):
@@ -139,6 +137,9 @@ class MultiCauseCircuitBreaker:
             raise CircuitBreakerOpen("endpoint failure rate too high for endpoint %s" % endpoint)
         if apply_ignore_before(self.method_instance_fail[method][endpoint]) > self.MAXIMUM_ERRORS_BEFORE_OPEN:
             raise CircuitBreakerOpen("method instance failure rate too high for (endpoint, method) = (%s, %s)" % (endpoint, method))
+
+        if self.last_cleanup < now - self.CLEANUP_INTERVAL:
+            self._cleanup()
 
         return endpoint
     
