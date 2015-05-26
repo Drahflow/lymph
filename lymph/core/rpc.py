@@ -8,6 +8,7 @@ import gevent
 import zmq.green as zmq
 
 from lymph.core.channels import RequestChannel, ReplyChannel
+from lymph.core.circuitbreaker import MultiCauseCircuitBreaker
 from lymph.core.components import Component
 from lymph.core.connection import Connection
 from lymph.core.messages import Message
@@ -36,6 +37,7 @@ class ZmqRPCServer(Component):
         self.connections = {}
         self.running = False
         self.request_handler = lambda channel: None
+        self.circuit_breaker = MultiCauseCircuitBreaker(adjust_endpoint_rating=self._adjust_with_connection_reliability)
 
     @classmethod
     def from_config(cls, config, **kwargs):
@@ -137,24 +139,35 @@ class ZmqRPCServer(Component):
         headers.setdefault('trace_id', trace.get_id())
         return headers
 
-    def _pick_endpoint(self, service):
+    def _adjust_with_connection_reliability(self, ratings):
+        for endpoint in ratings.keys():
+            if endpoint in self.connections:
+                ratings[endpoint] += self.connections[endpoint].phi
+            else:
+                ratings[endpoint] += 2.0 # downgrade untested connections
+
+        return ratings
+        
+    def _pick_endpoint(self, service, subject):
         if not isinstance(service, Service):
             return service
         service.observe(services.REMOVED, self._on_service_instance_unavailable)
-        choices = []
-        for instance in service:
-            try:
-                connection = self.connections[instance.endpoint]
-            except KeyError:
-                choices.append(instance.endpoint)
-                continue
-            if connection.is_alive():
-                choices.append(instance.endpoint)
-        if not choices:
-            raise NotConnected('Not connected to %s' % service.name)
-        return random.choice(choices)
 
-    def send_request(self, service, subject, body, headers=None):
+        endpoints = [instance.endpoint for instance in service]
+        for endpoint in endpoints:
+            self.circuit_breaker.add_method(endpoint, subject)
+
+        return self.circuit_breaker.select_endpoint(subject, endpoints=endpoints)
+
+    def _observe_success(self, endpoint, subject):
+        self.circuit_breaker.add_method(endpoint, subject)
+        self.circuit_breaker.observe_success(endpoint, subject)
+
+    def _observe_failure(self, endpoint, subject):
+        self.circuit_breaker.add_method(endpoint, subject)
+        self.circuit_breaker.observe_failure(endpoint, subject)
+
+    def send_request(self, service, subject, body, headers=None, make_observations=True):
         msg = Message(
             msg_type=Message.REQ,
             subject=subject,
@@ -165,10 +178,13 @@ class ZmqRPCServer(Component):
         channel = RequestChannel(msg, self)
         self.channels[msg.id] = channel
         try:
-            endpoint = self._pick_endpoint(service)
+            endpoint = self._pick_endpoint(service, subject)
         except NotConnected:
             logger.error('cannot send message (no instance): %s', msg)
         else:
+            if make_observations:
+                channel.observe(channel.FAILURE, lambda: self._observe_failure(endpoint, subject))
+                channel.observe(channel.SUCCESS, lambda: self._observe_success(endpoint, subject))
             self._send_message(endpoint, msg)
         return channel
 
@@ -227,7 +243,7 @@ class ZmqRPCServer(Component):
             self.recv_message(msg)
 
     def ping(self, address):
-        return self.send_request(address, 'lymph.ping', {'payload': ''})
+        return self.send_request(address, 'lymph.ping', {'payload': ''}, make_observations=False)
 
     def _get_metrics(self):
         yield metrics.RawMetric('rpc.connection_count', len(self.connections))

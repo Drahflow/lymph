@@ -38,6 +38,7 @@ class Connection(object):
         self.heartbeat_samples = SampleWindow(100, factor=1000)  # milliseconds
         self.explicit_heartbeat_count = 0
         self.status = UNKNOWN
+        self.phi = 0 # As in http://ternarysearch.blogspot.de/2013/08/phi-accrual-failure-detector.html
 
         self.received_message_count = 0
         self.sent_message_count = 0
@@ -52,13 +53,6 @@ class Connection(object):
 
     def _dt(self):
         return time.monotonic() - self.last_seen
-
-    @property
-    def phi(self):
-        p = self.heartbeat_samples.p(self._dt())
-        if p == 0:
-            return float('inf')
-        return -math.log10(p)
 
     def set_status(self, status):
         self.status = status
@@ -75,8 +69,17 @@ class Connection(object):
                 error = True
             took = time.monotonic() - start
             if not error:
+                p = self.heartbeat_samples.p(took)
+                if p == 0:
+                    self.phi = float('inf')
+                else:
+                    self.phi = -math.log10(p)
+
                 self.heartbeat_samples.add(took)
                 self.explicit_heartbeat_count += 1
+            else:
+                self.phi = float('inf')
+
             gevent.sleep(max(0, self.heartbeat_interval - took))
 
     def live_check_loop(self):

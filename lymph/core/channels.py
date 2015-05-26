@@ -1,5 +1,6 @@
 import gevent
 import gevent.queue
+from collections import defaultdict
 
 from lymph.exceptions import Timeout, Nack, RemoteError
 from lymph.core.messages import Message
@@ -12,9 +13,13 @@ class Channel(object):
 
 
 class RequestChannel(Channel):
+    SUCCESS = 'success'
+    FAILURE = 'failure'
+
     def __init__(self, request, server):
         super(RequestChannel, self).__init__(request, server)
         self.queue = gevent.queue.Queue()
+        self.listeners = defaultdict(list)
 
     def recv(self, msg):
         self.queue.put(msg)
@@ -23,17 +28,24 @@ class RequestChannel(Channel):
         try:
             msg = self.queue.get(timeout=timeout)
             if msg.type == Message.NACK:
+                for l in self.listeners[self.FAILURE]: l()
                 raise Nack(self.request)
             elif msg.type == Message.ERROR:
+                for l in self.listeners[self.FAILURE]: l()
                 raise RemoteError.from_reply(self.request, msg)
+            for l in self.listeners[self.SUCCESS]: l()
             return msg
         except gevent.queue.Empty:
+            for l in self.listeners[self.FAILURE]: l()
             raise Timeout(self.request)
         finally:
             self.close()
 
     def close(self):
         del self.server.channels[self.request.id]
+
+    def observe(self, what, listener):
+        self.listeners[what].append(listener)
 
 
 class ReplyChannel(Channel):

@@ -58,6 +58,10 @@ class NotConnected(Exception):
     pass
 
 
+class CircuitBreakerOpen(Exception):
+    pass
+
+
 class ResourceExhausted(Exception):
     pass
 
