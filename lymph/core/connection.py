@@ -68,7 +68,7 @@ class Connection(object):
             try:
                 channel.get(timeout=self.heartbeat_interval)
             except RpcError as e:
-                logger.debug('hearbeat error on %s: %r', self, e)
+                logger.debug('heartbeat error on %s: %r', self, e)
                 error = True
             took = time.monotonic() - start
             if not error:
@@ -97,9 +97,9 @@ class Connection(object):
             gevent.sleep(1)
 
     def update_status(self):
-        if self.last_seen:
-            now = time.monotonic()
+        now = time.monotonic()
 
+        if self.last_seen:
             if self.status == UNRESPONSIVE and now - self.last_status_change >= self.unresponsive_disconnect:
                 logger.debug("disconnecting from unresponsive endpoint %s" % (self.endpoint))
                 self.close()
@@ -111,6 +111,12 @@ class Connection(object):
                 self.set_status(IDLE)
             else:
                 self.set_status(RESPONSIVE)
+        else:
+            if self.status == UNRESPONSIVE and now - self.last_status_change >= self.unresponsive_disconnect:
+                logger.debug("disconnecting from unresponsive endpoint %s" % (self.endpoint))
+                self.close()
+            elif now - self.created_at >= self.timeout:
+                self.set_status(UNRESPONSIVE)
 
     def log_stats(self):
         roundtrip_stats = 'window (mean rtt={mean:.1f} ms; stddev rtt={stddev:.1f})'.format(**self.heartbeat_samples.stats)
