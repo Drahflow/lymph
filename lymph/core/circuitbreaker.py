@@ -126,6 +126,7 @@ class MultiCauseCircuitBreaker:
 
         ratings = { endpoint: sort_key(endpoint) for endpoint in endpoints }
         ratings = self.adjust_endpoint_rating(ratings)
+        logger.debug("endpoint ratings %s", ratings)
 
         if not ratings:
             raise NotConnected("no endpoints available for method: %s" % method)
