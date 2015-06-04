@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import socket
+import traceback
 
 import six
 
@@ -208,7 +209,7 @@ class ServiceContainer(Componentized):
             finally:
                 del exc_info
             try:
-                channel.nack(True)
+                channel.nack(True, body="caused by: %s\n" % traceback.format_exc())
             except:
                 logger.exception('failed to send automatic NACK')
 

@@ -23,7 +23,7 @@ class RequestChannel(Channel):
         try:
             msg = self.queue.get(timeout=timeout)
             if msg.type == Message.NACK:
-                raise Nack(self.request)
+                raise Nack(self.request, msg.body)
             elif msg.type == Message.ERROR:
                 raise RemoteError.from_reply(self.request, msg)
             return msg
@@ -51,10 +51,10 @@ class ReplyChannel(Channel):
         self.server.send_reply(self.request, None, msg_type=Message.ACK)
         self._sent_reply = True
 
-    def nack(self, unless_reply_sent=False):
+    def nack(self, unless_reply_sent=False, body=None):
         if unless_reply_sent and self._sent_reply:
             return
-        self.server.send_reply(self.request, None, msg_type=Message.NACK)
+        self.server.send_reply(self.request, body, msg_type=Message.NACK)
         self._sent_reply = True
 
     def error(self, **body):
