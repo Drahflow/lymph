@@ -10,6 +10,7 @@ import time
 from gevent.pool import Pool
 
 from lymph.client import Client
+from lymph.core import trace
 from lymph.exceptions import Timeout
 from lymph.cli.base import Command, handle_request_errors
 
@@ -102,6 +103,7 @@ class RequestCommand(Command):
         client = Client.from_config(self.config)
 
         def request():
+            trace.set_id()
             return client.request(address, subject, body, timeout=timeout)
 
         N, C = int(self.args['-N']), int(self.args['-C'])

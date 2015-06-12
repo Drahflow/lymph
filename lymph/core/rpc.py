@@ -186,6 +186,7 @@ class ZmqRPCServer(Component):
     def dispatch_request(self, msg):
         loglevel = self._get_loglevel(msg)
         logger.log(loglevel, '%s source=%s', msg.subject, msg.source)
+        trace.set_id(msg.headers.get('trace_id'))
         start = time.time()
         self.request_counts.incr(subject=msg.subject)
         channel = ReplyChannel(msg, self)
