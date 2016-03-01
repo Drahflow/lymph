@@ -239,6 +239,10 @@ class ServiceContainer(Componentized):
     def lookup(self, address, version=None):
         if '://' not in address:
             service = self.service_registry.get(address)
+            metric_name = 'rpc-servers.%s.instances' % address
+            if metric_name not in self.metrics:
+                self.metrics.add(metrics.Callable(metric_name,
+                                                  lambda: len(self.service_registry.get(address))))
         else:
             instance = ServiceInstance(address)
             service = Service(address, instances=[instance])

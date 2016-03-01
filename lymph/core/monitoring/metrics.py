@@ -61,6 +61,13 @@ class Aggregate(object):
         self._metrics.append(metric)
         return metric
 
+    def __contains__(self, key):
+        for metric in self._metrics:
+            for name, value, tags in metric:
+                if name == key:
+                    return True
+        return False
+
     def add_tags(self, **tags):
         self._tags.update(tags)
 
