@@ -64,7 +64,8 @@ class Aggregate(object):
     def has_metric(self, name, tags=None):
         for metric in self._metrics:
             for i_name, i_value, i_tags in metric:
-                if name == i_name and tags <= i_tags:
+                if (name == i_name and
+                        all([tags[tag] == i_tags[tag] for tag in tags.keys()])):
                     return True
         return False
 
